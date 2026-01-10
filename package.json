@@ -1,0 +1,20 @@
+{
+  "name": "websocket-back",
+  "type": "module",
+  "scripts": {
+    "start-dev": "nodemon --inspect dist/app.js",
+    "watch-dev": "tsc -w",
+    "build": "tsc",
+    "start": "node dist/app.js"
+  },
+  "dependencies": {
+    "express": "4.22.1",
+    "socket.io": "4.8.1"
+  },
+  "devDependencies": {
+    "@types/express": "5.0.1",
+    "@types/node": "22.14.1",
+    "nodemon": "3.1.10",
+    "typescript": "5.7.2"
+  }
+}
