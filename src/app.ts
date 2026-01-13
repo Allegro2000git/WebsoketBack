@@ -6,13 +6,16 @@ const app = express();
 const httpServer = createServer(app);
 
 const messages: any[] = [
-];
+    {message: "Hello, Dmitry", id: "vrz123z", user: {id: "1221rt", name: "Viktor"}},
+    {message: "Hello, Viktor", id: "vrz112t", user: {id: "1214rt", name: "Dmitry"}},
+    {message: "How are you", id: "vrz145z", user: {id: "1221rt", name: "Viktor"}}
+]
 
 const usersState = new Map();
 
 const io = new Server(httpServer, {
     cors: {
-        origin: "*"
+        origin: "http://localhost:3000"
     }
 });
 
@@ -25,27 +28,27 @@ io.on('connection', (socketChannel) => {
     socketChannel.emit('init-messages-published', messages)
 
     socketChannel.on('disconnect', () => {
-        usersState.delete(socketChannel);
+        usersState.delete(socketChannel.id);
     });
 
-    usersState.set(socketChannel, {id: new Date().getTime().toString(), name: 'anonymous'});
+    usersState.set(socketChannel.id, {id: new Date().getTime().toString(), name: 'anonymous'});
 
     socketChannel.on('client-name-sent', (name: string) => {
         if (typeof name !== 'string') {
             return;
         }
-        const user = usersState.get(socketChannel);
+        const user = usersState.get(socketChannel.id);
         user.name = name;
     });
     socketChannel.on('client-typed', () => {
-        io.emit('user-typing',usersState.get(socketChannel));
+        io.emit('user-typing',usersState.get(socketChannel.id));
     });
 
     socketChannel.on('client-message-sent', (message: string) => {
         if (typeof message !== 'string') {
         return;
         }
-        const user = usersState.get(socketChannel);
+        const user = usersState.get(socketChannel.id);
         let newMessage = {
             message: message, id: new Date().getTime(),
             user: {id: user.id, name: user.name}};
