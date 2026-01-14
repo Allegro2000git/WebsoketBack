@@ -1,21 +1,54 @@
 import express from 'express';
 import { createServer } from 'http';
-import { Server } from 'socket.io';
+import {Server, Socket} from 'socket.io';
+import {randomUUID} from "node:crypto";
+import type {Message, User} from "./types";
 
 const app = express();
 const httpServer = createServer(app);
 
-const messages: any[] = [
-    {message: "Hello, Dmitry", id: "vrz123z", user: {id: "1221rt", name: "Viktor"}},
-    {message: "Hello, Viktor", id: "vrz112t", user: {id: "1214rt", name: "Dmitry"}},
-    {message: "How are you", id: "vrz145z", user: {id: "1221rt", name: "Viktor"}}
+const EVENTS = {
+    INIT_MESSAGES: 'init-messages-published',
+    NEW_MESSAGE: 'new-message-sent',
+    USER_TYPING: 'user-typing',
+    USERS_COUNT_UPDATING: 'users-count-updated',
+    DISCONNECT: 'disconnect',
+    CLIENT_TIMEZONE_SENT: 'client-timezone-sent',
+    CLIENT_NAME_SENT: 'client-name-sent',
+    CLIENT_TYPED: 'client-typed',
+    CLIENT_MESSAGE_SENT: 'client-message-sent',
+} as const
+
+const messages: Message[] = [
+    {
+        message: 'Hello, Viktor',
+        id: randomUUID(),
+        createdAt: new Date(Date.now()).toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit',
+            timeZone: 'Europe/Moscow',
+            hour12: false
+        }),
+        user: { id: randomUUID(), name: 'Dimych' },
+    },
+    {
+        message: 'Hello, Dimych',
+        id: randomUUID(),
+        createdAt: new Date(Date.now()).toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit',
+            timeZone: 'Europe/Moscow',
+            hour12: false
+        }),
+        user: { id: randomUUID(), name: 'Viktor' },
+    },
 ]
 
-const usersState = new Map();
+const usersState = new Map()
 
 const io = new Server(httpServer, {
     cors: {
-        origin: "http://localhost:3000"
+        origin: "*"
     }
 });
 
@@ -23,42 +56,84 @@ app.get('/', (_req, res) => {
     res.send('<h1>Socket.IO Server</h1>');
 });
 
-io.on('connection', (socketChannel) => {
+io.on('connection', (socketChannel: Socket) => {
     console.log('New client connected:', socketChannel.id);
-    socketChannel.emit('init-messages-published', messages)
 
-    socketChannel.on('disconnect', () => {
-        usersState.delete(socketChannel.id);
-    });
+    const user: User = {
+        id: randomUUID(),
+        name: 'anonymous',
+    }
 
-    usersState.set(socketChannel.id, {id: new Date().getTime().toString(), name: 'anonymous'});
+    usersState.set(socketChannel, user)
 
-    socketChannel.on('client-name-sent', (name: string) => {
-        if (typeof name !== 'string') {
-            return;
+    updateUsersCount()
+
+    socketChannel.emit(EVENTS.INIT_MESSAGES, messages)
+
+    socketChannel.on(EVENTS.CLIENT_TIMEZONE_SENT, (timeZone: string) => {
+        if (typeof timeZone !== 'string') return
+
+        const user = usersState.get(socketChannel)
+        if (user) {
+            user.timeZone = timeZone
         }
-        const user = usersState.get(socketChannel.id);
-        user.name = name;
-    });
-    socketChannel.on('client-typed', () => {
-        io.emit('user-typing',usersState.get(socketChannel.id));
-    });
+    })
 
-    socketChannel.on('client-message-sent', (message: string) => {
-        if (typeof message !== 'string') {
-        return;
+    socketChannel.on(EVENTS.CLIENT_NAME_SENT, (name: string) => {
+        if (typeof name !== 'string') return
+
+        const user = usersState.get(socketChannel)
+        if (user) {
+            user.name = name
         }
-        const user = usersState.get(socketChannel.id);
-        let newMessage = {
-            message: message, id: new Date().getTime(),
-            user: {id: user.id, name: user.name}};
-        messages.push(newMessage);
-        io.emit('new-message-sent', newMessage);
-    });
+    })
+    socketChannel.on(EVENTS.CLIENT_MESSAGE_SENT, (message: string) => {
+        if (typeof message !== 'string') return
 
-});
+        const user = usersState.get(socketChannel)
+        if (!user) return
 
-const PORT = 3009;
+        const newMessage: Message = {
+            message,
+            id: randomUUID(),
+            createdAt: new Date(Date.now()).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+                timeZone: user.timeZone || 'UTC',
+            }),
+            user: {
+                id: user.id,
+                name: user.name,
+            },
+        }
+
+        messages.push(newMessage)
+        io.emit(EVENTS.NEW_MESSAGE, newMessage)
+    })
+
+    socketChannel.on(EVENTS.CLIENT_TYPED, () => {
+        const user = usersState.get(socketChannel)
+        if (user) {
+            socketChannel.broadcast.emit(EVENTS.USER_TYPING, user)
+        }
+    })
+
+    socketChannel.on(EVENTS.DISCONNECT, () => {
+        const user = usersState.get(socketChannel)
+        if (user) {
+            usersState.delete(socketChannel)
+            updateUsersCount()
+        }
+    })
+})
+
+
+function updateUsersCount() {
+    const count = usersState.size
+    io.emit(EVENTS.USERS_COUNT_UPDATING, count)
+}
+
+const PORT = process.env.PORT || 3009;
 httpServer.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
 });
